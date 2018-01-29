@@ -1,0 +1,73 @@
+---
+- name: Update apt repositories cache
+  apt:
+    update_cache: yes
+  changed_when: false
+  when: ansible_pkg_mgr == "apt"
+
+- name: Install https transport (needed for APT keys)
+  apt:
+    name: apt-transport-https
+  when: ansible_pkg_mgr == "apt"
+
+- name: Add packager.io GPG key
+  apt_key:
+    url: "https://deb.packager.io/key"
+  when: ansible_pkg_mgr == "apt"
+
+- name: Add apt repository for zammad
+  apt_repository:
+    repo: deb https://dl.packager.io/srv/deb/zammad/zammad/stable/ubuntu 16.04 main
+  when: ansible_pkg_mgr == "apt"
+
+- name: Install zammad
+  apt:
+    name:
+      - zammad
+  when: ansible_pkg_mgr == "apt"
+
+- name: Disable default zammad nginx config
+  file:
+    path: /etc/nginx/sites-enabled/zammad.conf
+    state: absent
+
+- name: Install letsencrypt
+  apt:
+    name:
+      - letsencrypt
+  when: ansible_pkg_mgr == "apt"
+
+- name: Install nginx site for letsencrypt requests
+  template: src=templates/nginx-http.j2 dest=/etc/nginx/sites-available/http-{{ zammad_domain }}
+
+- name: Enable letsencrypt requests site config
+  file: src=/etc/nginx/sites-available/http-{{ zammad_domain }} dest=/etc/nginx/sites-enabled/http-{{ zammad_domain }} state=link
+
+- name: Reload nginx to activate letsencrypt site
+  service: name=nginx state=reloaded
+
+- name: Create letsencrypt directory
+  file: name=/var/www/letsencrypt state=directory
+
+- name: Create letsencrypt certificate
+  shell: letsencrypt certonly -n --webroot -w /var/www/letsencrypt -m {{ letsencrypt_email }} --agree-tos -d {{ zammad_domain }}
+  args:
+    creates: /etc/letsencrypt/live/{{ zammad_domain }}
+  notify:
+    - Reload Nginx
+
+- name: Add zammad site config
+  template: src=nginx-secure.j2 dest=/etc/nginx/sites-available/{{ zammad_domain }} owner=root group=root
+  notify:
+    - Reload Nginx
+
+- name: Enable zammad site config
+  file: src=/etc/nginx/sites-available/{{ zammad_domain }} dest=/etc/nginx/sites-enabled/{{ zammad_domain }} state=link
+  notify:
+    - Reload Nginx
+
+- name: Add letsencrypt cronjob for renew
+  cron:
+    name: letsencrypt_renewal
+    special_time: weekly
+    job: letsencrypt renew --webroot -w /var/www/letsencrypt
