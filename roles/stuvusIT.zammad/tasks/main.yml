@@ -12,7 +12,7 @@
 
 - name: Add packager.io GPG key
   apt_key:
-    url: "https://deb.packager.io/key"
+    url: "https://dl.packager.io/srv/zammad/zammad/key"
   when: ansible_pkg_mgr == "apt"
 
 - name: Add apt repository for zammad
